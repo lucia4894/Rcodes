@@ -1,0 +1,310 @@
+options(java.parameters = "-Xmx2048m")
+library("openxlsx")
+library(xlsx)
+DATA_VISA_fil=read.xlsx("C:/Users/B35560/Documents/CIMA/Modelos/Ofertas/analsis_datacompleta.xlsx", sheetName = "cosa")
+
+library(readxl)
+data <- read_excel("C:/Users/B35560/Documents/CIMA/Modelos/Ofertas/analsis_datacompleta.xlsx", "=")
+
+
+head(data)
+str(data)
+data$RUC=as.factor(data$ruc)
+
+
+library(tseries)
+adf.test(RUCP1_TS) # p-value < 0.05 indicates the TS is stationary
+kpss.test(RUCP1_TS)
+
+
+library(dplyr)
+library(BBmisc)
+library(tidyr)
+
+dataser=subset(data,GIRO=="Servicios")
+datacom=subset(data,GIRO=="Comercio")
+GIROS=t(dataser %>% select(SUBGIRO) %>% distinct)
+GIROS_COM=t(datacom %>% select(SUBGIRO) %>% distinct)
+t(DATA_VISA %>% select(RUBRO_STALKER) %>% distinct)
+
+
+#Identificando lo que no deberían 0 y remplazar por NA
+
+vectorwhich=matrix(data=NA,nrow=nrow(dataser),ncol=1)
+vectorwhich_com=matrix(data=NA,nrow=nrow(datacom),ncol=1)
+
+#Servicios
+for(i in 1:nrow(vectorwhich)){
+  vectorwhich[i]=ifelse(max(which(dataser[i,5:14]>0))<0,0,max(which(dataser[i,5:14]>0)))
+}
+#Comercios
+for(i in 1:nrow(vectorwhich_com)){
+  vectorwhich_com[i]=ifelse(max(which(datacom[i,5:14]>0))<0,0,max(which(datacom[i,5:14]>0)))
+}
+
+#Servicios
+table(vectorwhich)
+cosa=matrix(data=0,nrow=nrow(dataser),ncol=1)
+dataser1=cbind(dataser[,1:14],cosa,dataser[,15:18],vectorwhich)
+
+for(i in 1:nrow(vectorwhich)){
+  dataser1[i,(ifelse(dataser1[i,20]==0,dataser1[i,20]+6,dataser1[i,20]+5)):15]<-NA
+}
+
+#Comercios
+cosa_com=matrix(data=0,nrow=nrow(datacom),ncol=1)
+datacom1=cbind(datacom[,1:14],cosa_com,datacom[,15:18],vectorwhich_com)
+
+for(i in 1:nrow(vectorwhich_com)){
+  datacom1[i,(ifelse(datacom1[i,20]==0,datacom1[i,20]+6,datacom1[i,20]+5)):15]<-NA
+}
+
+
+##Estandarizando la información para hacer el análisis
+
+library(robustHD)
+library(imputeTS)
+
+#Servicios
+dataser2=cbind(dataser1[,1:14],dataser1[,16:20])
+nrow(na.omit(dataser2[,5:15])) ##26,968 (44.7%)
+prueba=na.omit(dataser2[,5:15])
+prueba1=prueba[,-11]
+#Comercio
+datacom2=cbind(datacom1[,1:14],datacom1[,16:20])
+nrow(na.omit(datacom2[,5:15])) ##33,415 (39.6%)
+prueba_com=na.omit(datacom2[,5:15])
+prueba1_com=prueba_com[,-11]
+
+a=t(prueba %>% select(SUBGIRO) %>% distinct)
+acom=t(prueba_com %>% select(SUBGIRO) %>% distinct)
+
+#Servicios
+TABLA_TS_LUFUN=matrix(data=NA,nrow=length(GIROS),ncol=10)
+for(i in 1:length(GIROS)){
+  TABLA_TS_LUFUN[i,]=t(as.numeric(colMeans(t(standardize(na.mean(t(subset(prueba, SUBGIRO==GIROS[i], 
+                select = c(JUL17, AGO17, SEP17, OCT17, NOV17, DIC17, 
+            ENE18, FEB18, MAR18, ABR18)))))), na.rm=TRUE )))
+}
+TABLA_TS_2=na.omit(cbind(t(GIROS),as.data.frame(TABLA_TS_LUFUN)))
+str(TABLA_TS_2)
+str(as.data.frame(TABLA_TS_LUFUN))
+
+#Comercio
+TABLA_TS_LUFUN_COM=matrix(data=NA,nrow=length(GIROS_COM),ncol=10)
+for(i in 1:length(GIROS_COM)){
+  TABLA_TS_LUFUN_COM[i,]=t(as.numeric(colMeans(t(standardize(na.mean(t(subset(prueba_com, SUBGIRO==GIROS_COM[i], 
+                                                                          select = c(JUL17, AGO17, SEP17, OCT17, NOV17, DIC17, 
+                                                                                     ENE18, FEB18, MAR18, ABR18)))))), na.rm=TRUE )))
+}
+TABLA_TS_2_COM=na.omit(cbind(t(GIROS_COM),as.data.frame(TABLA_TS_LUFUN_COM)))
+str(TABLA_TS_2_COM)
+str(as.data.frame(TABLA_TS_LUFUN))
+
+t(GIROS_COM)
+t(acom)
+
+#CLUSTER
+library(advclust)
+
+#calcula la suma total de cuadrados y plotea el #clusters
+wss <- (nrow(TABLA_TS_2)-1)*sum(apply(TABLA_TS_2[,2:11],2,var))
+#la calcula por clusters
+for (i in 2:13) wss[i] <- sum(kmeans(TABLA_TS_2[,2:11],centers=i)$withinss)
+plot(1:13, wss, type="b", xlab="Nummero de Clusters",ylab="Suma de cuadrados within") 
+
+#COMERCIO-calcula la suma total de cuadrados y plotea el #clusters
+wss_COM <- (nrow(TABLA_TS_2_COM)-1)*sum(apply(TABLA_TS_2_COM[,2:11],2,var))
+#la calcula por clusters
+for (i in 2:13) wss_COM[i] <- sum(kmeans(TABLA_TS_2_COM[,2:11],centers=i)$withinss)
+plot(1:13, wss_COM, type="b", xlab="Nummero de Clusters",ylab="Suma de cuadrados within") 
+
+
+# kmeans
+set.seed(1234)
+kmean<-kmeans(TABLA_TS_2_COM[,2:11],centers=4,iter.max=100)
+kmean$size
+kmean$withinss
+t(kmean$cluster)
+
+# Fuzzy C-Means
+fuzzy.CM(X=TABLA_TS_2_COM[,2:11],K = 4,m = 2,RandomNumber = 1234)->cl_CM_COM
+print(cl_CM_COM)
+table(cl_CM_COM@hard.label)
+plot(cl_CM_COM)
+
+biploting(cl_CM_COM, TABLA_TS_2_COM[,2:11], scale=F)->biplot
+radar.plotting(cl_CM_COM, TABLA_TS_2_COM[,2:11])
+
+# Gustafson Kessel
+fuzzy.GK(X=TABLA_TS_2[,2:11],K = 6,m = 2,RandomNumber = 1234)->cl_GK
+attributes(cl_GK)
+show(cl_GK)
+table(cl_GK@hard.label)
+
+radar.plotting(cl_GK, TABLA_TS_2[,2:11])
+plot(TABLA_TS_2[,2:11], cl_GK)
+
+# Gustafson Kessel-Servicios
+fuzzy.GK(X=TABLA_TS_2_COM[,2:11],K = 4,m = 2,RandomNumber = 1234)->cl_GK_COM
+show(cl_GK_COM)
+table(cl_GK_COM@hard.label)
+
+radar.plotting(cl_GK_COM, TABLA_TS_2_COM[,2:11])
+plot(TABLA_TS_2[,2:11], cl_GK)
+
+
+#DBSCAN
+library("fpc")
+library("dbscan")
+df=fpc::dbscan(TABLA_TS_2_COM[,2:11],eps = 0.7, MinPts =  1,scale = FALSE)
+df
+plot(df, TABLA_TS_2_COM[,2:11], main = "DBSCAN", frame = FALSE)
+dbscan::kNNdistplot(TABLA_TS_2_COM[,2:11], k =  3)
+abline(h = 0.63, lty = 2)
+
+##kohone
+library(kohonen)
+set.seed(7)
+
+kohonen.som=som(as.matrix(TABLA_TS_2_COM[,2:11]), grid = somgrid(5,4,"hexagonal"))
+names(kohonen.som)
+summary(kohonen.som)
+
+kohonen.som$unit.classif #unidades ganadoras para todos los objetos de datos
+kohonen.som$codes #una lista de matrices que contienen vectores de libro de c?digos.
+plot(kohonen.som, main="Subgiros de Comercios")
+radar.plotting(kohonen.som, TABLA_TS_2_COM[,2:11])
+
+#USO DE LA FUNCI?N xyf DE VINOS
+attach(TABLA_TS_2)
+set.seed(7)
+kohmap = xyf(as.matrix(TABLA_TS_2_COM[,2:11]), classvec2classmat(acom),grid = somgrid(5, 5, "hexagonal"), rlen=100)
+plot(kohmap,type="codes",main=c("Distribuci?n de variables","Clases de c?digos"))
+plot(kohmap,type="mapping",,col=clase+1,main="Mapa de clases")
+plot(kohmap,type="mapping",labels=SUBGIRO,col=clase+1,main="Mapa de clases")
+windows()
+plot(kohmap,type="counts",main="Diagrama de conteos")
+plot(kohmap,type="quality",labels=clase,col=clase+1,main="Mapa de calidad")
+
+
+##cREACIÓN DE FÓRMULA POR SUBGIRO
+library(readxl)
+data_visa_flujos <- read_excel("C:/Users/B35560/Documents/CIMA/Modelos/Ofertas/oferta visa analisis al 29.11.18.xlsx", "FINAL")
+str(data_visa_flujos)
+
+
+flujos_comercio %>% group_by(CLUSTER) %>% count()
+
+#Creando la variaciones entre los meses
+flujos_comercio=subset(data_visa_flujos, GIRO_VISA_ADJ=="Comercio")
+flujos_servicios=subset(data_visa_flujos, GIRO_VISA_ADJ=="Servicios")
+
+
+#Quitando los NAs
+vectorwhich_flujoscomercio=matrix(data=NA,nrow=nrow(flujos_comercio),ncol=1)
+for(i in 1:nrow(vectorwhich_flujoscomercio)){
+  vectorwhich_flujoscomercio[i]=ifelse(max(which(flujos_comercio[i,14:25]>0))<0,0,max(which(flujos_comercio[i,14:25]>0)))
+}
+table(vectorwhich_flujoscomercio)
+cosa=matrix(data=0,nrow=nrow(flujos_comercio),ncol=1)
+flujos_comercio1=cbind(flujos_comercio[,1:25],cosa,flujos_comercio[,26:35],vectorwhich_flujoscomercio)
+
+for(i in 1:nrow(vectorwhich_flujoscomercio)){
+  flujos_comercio1[i,(ifelse(flujos_comercio1[i,37]==0,flujos_comercio1[i,37]+15,flujos_comercio1[i,37]+14)):26]<-NA
+}
+
+prueba=flujos_comercio1[complete.cases(flujos_comercio1[ , 14:25]),]
+
+CLUSTERS=t(prueba %>% select(CLUSTER) %>% distinct)
+TABLA_CLUSTERS=matrix(data=NA,nrow=length(CLUSTERS),ncol=12)
+
+for(i in 1:length(CLUSTERS)){
+  TABLA_CLUSTERS[i,]=t(as.numeric(colMeans(t(standardize(na.mean(t(subset(prueba, CLUSTER==CLUSTERS[i], 
+               select = c(NOV17, DIC17, ENE18, FEB18, MAR18, 
+                          ABR18,MAY18,JUN18,JUL18,AGO18,SEP18,OCT18)))))), na.rm=TRUE )))
+}
+
+
+#Quitando los NAs
+vectorwhich_flujosservicios=matrix(data=NA,nrow=nrow(flujos_servicios),ncol=1)
+for(i in 1:nrow(vectorwhich_flujosservicios)){
+  vectorwhich_flujosservicios[i]=ifelse(max(which(flujos_servicios[i,14:25]>0))<0,0,max(which(flujos_servicios[i,14:25]>0)))
+}
+table(vectorwhich_flujosservicios)
+cosa=matrix(data=0,nrow=nrow(flujos_servicios),ncol=1)
+flujos_servicios1=cbind(flujos_servicios[,1:25],cosa,flujos_servicios[,26:35],vectorwhich_flujosservicios)
+
+for(i in 1:nrow(vectorwhich_flujosservicios)){
+  flujos_servicios1[i,(ifelse(flujos_servicios1[i,37]==0,flujos_servicios1[i,37]+15,flujos_servicios1[i,37]+14)):26]<-NA
+}
+
+prueba=flujos_servicios1[complete.cases(flujos_servicios1[ , 14:25]),]
+
+CLUSTERS=t(prueba %>% select(CLUSTER) %>% distinct)
+TABLA_CLUSTERS=matrix(data=NA,nrow=length(CLUSTERS),ncol=12)
+
+for(i in 1:length(CLUSTERS)){
+  TABLA_CLUSTERS[i,]=t(as.numeric(colMeans(t(standardize(na.mean(t(subset(prueba, CLUSTER==CLUSTERS[i], 
+                                                                          select = c(NOV17, DIC17, ENE18, FEB18, MAR18, 
+                                                                                     ABR18,MAY18,JUN18,JUL18,AGO18,SEP18,OCT18)))))), na.rm=TRUE )))
+}
+
+
+str(flujos_servicios1)
+data_visa_flujos$ABR18=as.numeric(data_visa_flujos$ABR18)
+data_visa_flujos$MAR18=as.numeric(data_visa_flujos$MAR18)
+data_visa_flujos$FEB18=as.numeric(data_visa_flujos$FEB18)
+data_visa_flujos$ENE18=as.numeric(data_visa_flujos$ENE18)
+data_visa_flujos$DIC17=as.numeric(data_visa_flujos$DIC17)
+data_visa_flujos$NOV17=as.numeric(data_visa_flujos$NOV17)
+data_visa_flujos$OCT18=as.numeric(data_visa_flujos$OCT18)
+data_visa_flujos$SEP18=as.numeric(data_visa_flujos$SEP18)
+
+#Graficando cada cluster
+a=t(prueba %>% select(CLUSTER) %>% distinct)
+TABLA_CLUSTERS
+
+CLUSTERS
+ptodo=data.frame(
+  SERVICIOS4=as.matrix(TABLA_CLUSTERS[1,]),
+  SERVICIOS2=as.matrix(TABLA_CLUSTERS[2,]),
+  SERVICIOS6=as.matrix(TABLA_CLUSTERS[3,]),
+  SERVICIOS5=as.matrix(TABLA_CLUSTERS[5,]),
+  SERVICIOS1=as.matrix(TABLA_CLUSTERS[4,]),
+  SERVICIOS3=as.matrix(TABLA_CLUSTERS[6,]),
+  date=time(ts(t(TABLA_CLUSTERS[1,]), frequency = 12, start = c(2017,11), end = c(2018,10)))
+)
+ptodo=data.frame(
+  COMERCIO2=as.matrix(TABLA_CLUSTERS[1,]),
+  COMERCIO3=as.matrix(TABLA_CLUSTERS[2,]),
+  COMERCIO1=as.matrix(TABLA_CLUSTERS[3,]),
+  COMERCIO4=as.matrix(TABLA_CLUSTERS[4,]),
+  date=time(ts(t(TABLA_CLUSTERS[1,]), frequency = 12, start = c(2017,11), end = c(2018,10)))
+)
+
+library(tidyr)
+
+#Comercio
+df <- ptodo %>%
+  select(date,
+         COMERCIO1,COMERCIO2,COMERCIO3,COMERCIO4) %>%
+  gather(key = "variable", value = "value", -date)
+head(df, 3)
+
+ggplot(df, aes(x = date, y = value)) + 
+  geom_line(aes(color = variable), size = 1) +
+  theme_minimal()
+
+#Servicios
+df <- ptodo %>%
+  select(date,
+         SERVICIOS1,SERVICIOS2,SERVICIOS3,SERVICIOS4,SERVICIOS5,SERVICIOS6) %>%
+  gather(key = "variable", value = "value", -date)
+head(df, 3)
+
+ggplot(df, aes(x = date, y = value)) + 
+  geom_line(aes(color = variable), size = 1) +
+  theme_minimal()
+
+a=cor(t(TABLA_TS_LUFUN))
